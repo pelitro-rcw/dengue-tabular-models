@@ -1,14 +1,14 @@
 # Generative embedding extends tabular foundation models to dengue early warning from sparse surveillance data
 
-The repository reproduces the full featurisation pipeline and the headline raw-versus-enriched comparison reported in the manuscript from a single weekly dengue and rainfall dataset and a small set of Python scripts. One command expands two raw weekly columns into roughly 105 latent features and passes them to a tabular foundation model.
+The repository reproduces the full featurisation pipeline and the headline raw-versus-enriched comparison reported in the manuscript from a single weekly dengue and rainfall dataset and a small set of Python scripts. One command expands two raw weekly columns into 132 features and passes them to a tabular foundation model.
 
 ## Background
 
-Routine dengue surveillance returns very little structured signal each week. In practice a surveillance unit holds two usable weekly columns, notified case counts and rainfall. That is too sparse for a tabular foundation model to perform well on directly. The two columns nonetheless carry latent structure: annual seasonality, monsoon and ENSO low-frequency climate variation, rainfall accumulation and threshold effects, and short-term transmission acceleration. This pipeline makes that structure explicit. It expands the two raw columns into about 105 domain-grounded, leakage-safe features, the step we describe as generative embedding, and then passes the embedded representation to TabPFN to produce a weekly early-warning probability.
+Routine dengue surveillance returns very little structured signal each week. In practice a surveillance unit holds two usable weekly columns, notified case counts and rainfall. That is too sparse for a tabular foundation model to perform well on directly. The two columns nonetheless carry latent structure: annual seasonality, monsoon and ENSO low-frequency climate variation, rainfall accumulation and threshold effects, and short-term transmission acceleration. This pipeline makes that structure explicit. It expands the two raw columns into 132 features, of which 108 are domain-grounded and leakage-safe and 24 are canonical catch22 descriptors kept as a control, the step we describe as generative embedding, and then passes the embedded representation to TabPFN to produce a weekly early-warning probability.
 
-The reported result is the lift obtained by moving from the raw two-column input to the embedded feature set, not the absolute score. Every run records three rungs of an enrichment ladder, raw two-column to case-only to enriched, so the contribution of the embedding is read directly rather than inferred. The pipeline is evaluated at three nested geographic scales, Quezon City, the 17 Philippine administrative regions, and eight dengue-endemic countries, under a leave-one-year-out protocol in which the imputer, the rank-Gaussian transform, and the classifier are all fitted on the training years alone.
+The reported result is the lift obtained by moving from the raw two-column input to the embedded feature set, not the absolute score. Every run records an enrichment ladder that runs from the raw two columns through case-only and domain-only representations to the full enriched set, alongside a catch22-only control, so the contribution of the embedding and of the generic descriptors can both be read directly rather than inferred. The pipeline is evaluated at three nested geographic scales, Quezon City, the 17 Philippine administrative regions, and eight dengue-endemic countries, under a leave-one-year-out protocol in which the imputer, the rank-Gaussian transform, and the classifier are all fitted on the training years alone.
 
-The early-warning target is peak-anchored and therefore case-derived, which places a ceiling on achievable discrimination at an AUROC of roughly 0.85. The work is presented as an internal-validity demonstration of the featurisation method rather than a claim of operational forecast skill.
+The early-warning target is peak-anchored and therefore case-derived, which bounds achievable discrimination. The enriched representation reaches an AUROC of 0.87 at the city, 0.84 across regions, and 0.75 across countries. The work is presented as an internal-validity demonstration of the featurisation method rather than a claim of operational forecast skill.
 
 ## Authors
 
@@ -37,8 +37,11 @@ SparseFE/
 │
 ├── code/
 │   ├── labels.py                            peak-anchored early-warning target
-│   ├── enrich.py                            the method: 2 columns to ~105 causal latent features
+│   ├── enrich.py                            the method: 2 columns to 132 causal latent features
 │   ├── evaluate.py                          TabPFN-or-stand-in, leave-one-year-out CV
+│   ├── stats.py                             paired cluster bootstrap, DeLong, calibration tests
+│   ├── rain_threshold.py                    rainfall trigger preceding acceleration onset
+│   ├── tfm_compare.py                       time-series comparator scored on common weeks
 │   ├── run.py                               one-command entry point
 │   └── make_figures.py                      raw-versus-enriched comparison charts
 │
@@ -57,9 +60,9 @@ The workbook contains five sheets. Two metadata sheets (Dataset Summary and Data
 
 | Sheet           | Records | Period    | Case column used   | Rainfall column used |
 |-----------------|---------|-----------|--------------------|----------------------|
-| `QC Data`       | 832     | 2010–2025 | `DC_QC`            | `RF_PAGASA`          |
-| `Regional Data` | 7 072   | 2016–2025 | `DC_DOH`           | `RF_NASA`            |
-| `Country Data`  | 3 216   | 2016–2025 | `DC_OPENDENGUE`    | `RF_HDX`             |
+| `QC Data`       | 832     | 2010-2025 | `DC_QC`            | `RF_PAGASA`          |
+| `Regional Data` | 7 072   | 2016-2025 | `DC_DOH`           | `RF_NASA`            |
+| `Country Data`  | 3 216   | 2016-2025 | `DC_OPENDENGUE`    | `RF_HDX`             |
 
 `YR` is the ISO calendar year and `WN` is the ISO epidemiological week number; each observation is indexed to the Monday of the corresponding ISO week. The `DC_*` columns are the weekly suspected dengue case counts at the corresponding scale, and the `RF_*` columns are the matched weekly rainfall series. `DC_QC` is from the Quezon City Epidemiology and Surveillance Division. `DC_DOH` is from PIDSR-reported regional submissions archived at the Humanitarian Data Exchange (https://data.humdata.org). `DC_OPENDENGUE` is from the OpenDengue repository (https://opendengue.org).
 
@@ -112,6 +115,19 @@ py code/run.py --scale country      # 8 endemic countries
 py code/make_figures.py             # comparison figures, after one or more scales
 ```
 
+The exact Windows PowerShell sequence used to produce the published TabPFN outputs is below. Replace `your-token-here` with your own token from the License tab at https://ux.priorlabs.ai, and do not commit a real token to the repository. `Remove-Item Env:LABEL_MODE` clears any leftover label-mode override from the session, and `--fast` is the quicker run setting used here.
+
+```powershell
+cd C:\Users\User\Downloads\SparseFE
+Remove-Item Env:LABEL_MODE -ErrorAction SilentlyContinue
+$env:TABPFN_TOKEN="your-token-here"
+$env:AUTOTABPFN_BACKEND="tabpfn"
+py code\run.py --scale qc --fast
+py code\run.py --scale regional --fast
+py code\run.py --scale country --fast
+py code\make_figures.py
+```
+
 Each scale writes its own subdirectory under `outputs/`, created on first run. `make_figures.py` reads whichever scales have been run and writes the figure set; the regional climate-gradient figure requires the regional run.
 
 ### Runtime
@@ -124,23 +140,23 @@ A single scale completes in a few minutes on a recent laptop under the stand-in 
 
 `labels.py` builds the peak-anchored early-warning label. The target is defined relative to the annual epidemic peak within each unit-year, which is what ties the achievable discrimination to the case series and motivates the internal-validity framing stated above.
 
-### enrich.py: generative embedding of two columns into ~105 latent features
+### enrich.py: generative embedding of two columns into 132 latent features
 
-`enrich.py` is the method. It takes the two raw weekly columns and reconstructs the latent structure they contain as an explicit feature set of about 105 columns, grouped into mechanism-grounded families: calendar seasonality, week-of-year climatology, rainfall accumulation and threshold crossings, transmission-acceleration measures, and the catch22 time-series descriptors. Every feature carries a source tag (rain, case, or calendar) and a one-line rationale, exported in `feature_dictionary.csv`.
+`enrich.py` is the method. It takes the two raw weekly columns and reconstructs the latent structure they contain as an explicit feature set of 132 columns. Of these, 108 are domain features across mechanism-grounded families (calendar seasonality, week-of-year climatology, rainfall accumulation and threshold crossings, transmission-acceleration measures, low-frequency climate structure, and multi-scale case-dynamics views), and 24 are catch22 time-series descriptors kept as a control. Every feature carries a source tag (rain, case, or calendar) and a one-line rationale, exported in `feature_dictionary.csv`.
 
 Every feature is causal. At week *t* a feature uses only weeks at or before *t* within the same unit-year, and any week-of-year climatology is built from prior years only, so no future information enters the representation. Feature engineering is confined to this module, which keeps the embedding step in one auditable place.
 
 ### evaluate.py: leave-one-year-out evaluation
 
-`evaluate.py` runs the leave-one-year-out, expanding-window cross-validation. The model trains on earlier years and is tested on the held-out year. The imputer, the rank-Gaussian transform, and the classifier are fitted on the training years alone, so no statistic crosses from test to train. The classifier is TabPFN when the backend is available and the labelled stand-in otherwise. This protocol is fixed and is what keeps the reported numbers honest; it should not be altered.
+`evaluate.py` runs the leave-one-year-out, expanding-window cross-validation. The model trains on earlier years and is tested on the held-out year. The imputer, the rank-Gaussian transform, and the classifier are fitted on the training years alone, so no statistic crosses from test to train. Each held-out prediction is tagged with its unit-year, so the cluster bootstrap in `stats.py` can resample those blocks. The classifier is TabPFN when the backend is available and the labelled stand-in otherwise. This protocol is fixed and is what keeps the reported numbers honest; it should not be altered.
 
 ### run.py: entry point and outputs
 
-`run.py` is the one-command entry point. For the requested scale it writes `outputs/<scale>/` containing `metrics.json` (the raw to case-only to enriched ladder, with AUROC, AUPRC, and Brier score, and the `backend` recorded), `enriched.csv` (the full ~105-feature reconstruction), `feature_dictionary.csv`, `preds_enriched.npz` (out-of-fold `y_true` and `y_prob` used for calibration), and, for the regional and country scales, `regional_metrics.csv` with per-unit leave-one-year-out metrics and PAGASA climate type.
+`run.py` is the one-command entry point. For the requested scale it writes `outputs/<scale>/` containing `metrics.json` (the enrichment ladder from raw through case-only, catch22-only, and domain-only to enriched, with AUROC, AUPRC, and Brier score, the time-series comparator, and the `backend` recorded), `stats.json` (the paired cluster-bootstrap confidence intervals, the confirmatory raw-versus-enriched test, the DeLong check, the calibration statistics, and, where they apply, the climate-gradient and rainfall-trigger results), `enriched.csv` (the full 132-feature reconstruction), `feature_dictionary.csv`, `preds_enriched.npz` and `oof_all.npz` (out-of-fold predictions used for calibration and the bootstrap), `rain_thresholds.csv` (the rainfall-trigger analysis), and, for the regional and country scales, `regional_metrics.csv` with per-unit leave-one-year-out metrics, bootstrap intervals, an above-chance flag, and PAGASA climate type.
 
 ### make_figures.py: the comparison figures
 
-`make_figures.py` writes `outputs/figures/`: the enrichment ladder per scale (raw versus case-only versus enriched), the feature-attribution chart ranking features by mutual information, the regional climate-gradient chart of AUROC by PAGASA climate type, and the reliability curve of the enriched model. The file `outputs/region_climate_type.csv` holds a best-effort dominant PAGASA type per region and can be edited to match a chosen reference, after which the gradient figure updates accordingly.
+`make_figures.py` writes `outputs/figures/`: the enrichment ladder per scale with bootstrap confidence intervals and the raw-versus-enriched significance, the feature-attribution chart ranking features by their leave-one-year-out permutation importance, the regional climate-gradient chart of AUROC by PAGASA climate type with per-region intervals and the Kruskal-Wallis result, and the calibration figure giving the reliability curve, expected calibration error, calibration slope, and Spiegelhalter's test for the enriched model. The file `outputs/region_climate_type.csv` holds a best-effort dominant PAGASA type per region and can be edited to match a chosen reference, after which the gradient figure updates accordingly.
 
 ## Methodological notes
 
@@ -152,6 +168,10 @@ Every feature respects the same-unit-year, weeks-at-or-before-*t* rule, and week
 
 The leave-one-year-out design trains on earlier years and tests on the held-out year, with all fitting confined to the training years. Reporting always shows both ends of the ladder, the raw two-column rung and the enriched rung, because the contribution of the embedding is the comparison between them rather than either score on its own.
 
+### Statistical analysis
+
+`stats.py` computes the inferential layer. Confidence intervals and p-values come from a paired cluster bootstrap with 2000 resamples that resamples whole unit-years, so the effective sample size is the number of unit-years rather than the number of weeks (12 at the city, 102 across regions, and 45 across countries). Because every representation is scored on the same held-out weeks, representations are compared as paired contrasts. The raw-versus-enriched contrast in AUROC is treated as confirmatory; the remaining contrasts are exploratory under Benjamini-Hochberg control of the false-discovery rate, and the DeLong test is reported as a secondary check. Calibration is summarised by the Brier score and the expected calibration error and assessed by the Cox calibration slope and intercept and Spiegelhalter's test. The enriched probabilities are over-dispersed, with a calibration slope below 1, so they should be recalibrated before any operational use. Per-region and per-country detection is judged against chance by whether the lower bound of the bootstrap interval exceeds 0.5. The regional climate gradient is tested with a Kruskal-Wallis statistic, and `rain_threshold.py` compares the rainfall-dynamics representation against the accumulation level under the same paired bootstrap. The number of resamples is set with `BOOT_B`, seed-stability is checked by re-running the city scale across `PIPELINE_SEED` values, and `--stability K` repeats the fit K times.
+
 ### Year exclusions
 
 Pandemic and terminal-gap years are dropped using the workbook's own `FLAG_*` columns rather than a fixed list, so the exclusion logic is data-driven and travels with the dataset.
@@ -162,7 +182,7 @@ Results are tagged by backend in every output file. The `standin_histgb` results
 
 ### Honest caveat
 
-The early-warning label is peak-anchored and case-derived, which caps achievable AUROC at about 0.85. The pipeline is a demonstration of the featurisation method, not an operational forecast-skill claim.
+The early-warning label is peak-anchored and case-derived, which bounds achievable AUROC; the enriched representation reaches about 0.87 at the city scale. The pipeline is a demonstration of the featurisation method, not an operational forecast-skill claim.
 
 ## Citation
 
@@ -178,7 +198,7 @@ A `CITATION.cff` file is provided so that the GitHub repository renders a "Cite 
 
 The code in this repository is released under the MIT Licence (see `LICENSE`).
 
-The data are distributed under the Open Data Commons Open Database License (ODC-ODbL) v1.0 (https://opendatacommons.org/licenses/odbl/1.0/), which permits the use, distribution, and adaptation of data, provided that appropriate attribution is given to the UP Resilience Institute–NOAH (UPRI-NOAH) and its contributors and that derivative databases are shared under the same license.
+The data are distributed under the Open Data Commons Open Database License (ODC-ODbL) v1.0 (https://opendatacommons.org/licenses/odbl/1.0/), which permits the use, distribution, and adaptation of data, provided that appropriate attribution is given to the UP Resilience Institute-NOAH (UPRI-NOAH) and its contributors and that derivative databases are shared under the same license.
 
 ## Funding
 
